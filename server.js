@@ -1,6 +1,4 @@
-// Load environment variables
 require('dotenv').config();
-
 const express = require('express');
 const cors = require('cors');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
@@ -8,9 +6,10 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Middleware
+// FIXED CORS configuration - allows both github.io and github.io/Foundation
 app.use(cors({
-    origin: process.env.FRONTEND_URL || [
+    origin: [
+        'https://gurukullam.github.io/Foundation',
         'https://gurukullam.github.io',
         'http://localhost:8080',
         'http://localhost:3000'
@@ -20,13 +19,9 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization', 'stripe-signature']
 }));
 
-// Raw body for webhooks
 app.use('/webhook', express.raw({ type: 'application/json' }));
-
-// JSON parsing for other routes
 app.use(express.json());
 
-// Health check endpoint
 app.get('/health', (req, res) => {
     res.json({ 
         status: 'OK', 
@@ -35,21 +30,18 @@ app.get('/health', (req, res) => {
     });
 });
 
-// Create Payment Intent endpoint
 app.post('/create-payment-intent', async (req, res) => {
     console.log('🔄 Creating payment intent...');
     
     try {
         const { planType, currency, amount, customerEmail, customerName } = req.body;
         
-        // Validate required fields
         if (!planType || !currency || !amount) {
             return res.status(400).json({ 
                 error: 'Missing required fields: planType, currency, amount' 
             });
         }
 
-        // Create customer if email provided
         let customer = null;
         if (customerEmail) {
             try {
@@ -66,9 +58,8 @@ app.post('/create-payment-intent', async (req, res) => {
             }
         }
 
-        // Create payment intent
         const paymentIntent = await stripe.paymentIntents.create({
-            amount: amount, // Amount in cents
+            amount: amount,
             currency: currency.toLowerCase(),
             customer: customer ? customer.id : undefined,
             description: `French Learning App - ${planType} subscription`,
@@ -77,9 +68,7 @@ app.post('/create-payment-intent', async (req, res) => {
                 customerEmail: customerEmail || 'guest',
                 source: 'french-learning-app'
             },
-            // Automatically confirm the payment (for immediate processing)
             confirm: false,
-            // Enable automatic payment methods
             automatic_payment_methods: {
                 enabled: true,
             },
@@ -102,12 +91,10 @@ app.post('/create-payment-intent', async (req, res) => {
     }
 });
 
-// Get subscription status
 app.get('/subscription-status/:customerEmail', async (req, res) => {
     try {
         const { customerEmail } = req.params;
         
-        // Search for customer by email
         const customers = await stripe.customers.list({
             email: customerEmail,
             limit: 1
@@ -122,7 +109,6 @@ app.get('/subscription-status/:customerEmail', async (req, res) => {
 
         const customer = customers.data[0];
         
-        // Get customer's subscriptions
         const subscriptions = await stripe.subscriptions.list({
             customer: customer.id,
             status: 'active',
@@ -156,7 +142,6 @@ app.get('/subscription-status/:customerEmail', async (req, res) => {
     }
 });
 
-// Webhook endpoint for Stripe events
 app.post('/webhook', async (req, res) => {
     const sig = req.headers['stripe-signature'];
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -171,40 +156,26 @@ app.post('/webhook', async (req, res) => {
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    // Handle the event
     try {
         switch (event.type) {
             case 'payment_intent.succeeded':
                 const paymentIntent = event.data.object;
                 console.log('💳 Payment succeeded:', paymentIntent.id);
-                
-                // Here you could update your database with successful payment
-                // For example, mark user as premium in Firebase
-                
                 break;
 
             case 'payment_intent.payment_failed':
                 const failedPayment = event.data.object;
                 console.log('❌ Payment failed:', failedPayment.id);
-                
-                // Handle failed payment
-                
                 break;
 
             case 'invoice.payment_succeeded':
                 const invoice = event.data.object;
                 console.log('📄 Invoice payment succeeded:', invoice.id);
-                
-                // Handle successful recurring payment
-                
                 break;
 
             case 'customer.subscription.deleted':
                 const subscription = event.data.object;
                 console.log('🗑️ Subscription deleted:', subscription.id);
-                
-                // Handle subscription cancellation
-                
                 break;
 
             default:
@@ -219,7 +190,6 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
-// Test endpoint for development
 app.get('/test', (req, res) => {
     res.json({ 
         message: 'Backend is working!',
@@ -228,7 +198,6 @@ app.get('/test', (req, res) => {
     });
 });
 
-// Error handling middleware
 app.use((error, req, res, next) => {
     console.error('❌ Unhandled error:', error);
     res.status(500).json({ 
@@ -237,7 +206,6 @@ app.use((error, req, res, next) => {
     });
 });
 
-// 404 handler
 app.use('*', (req, res) => {
     res.status(404).json({ 
         error: 'Endpoint not found',
@@ -245,7 +213,6 @@ app.use('*', (req, res) => {
     });
 });
 
-// Start server
 app.listen(port, () => {
     console.log(`🚀 French Learning Payment Backend running on port ${port}`);
     console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
